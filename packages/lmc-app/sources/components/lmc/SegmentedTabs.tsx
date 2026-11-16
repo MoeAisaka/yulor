@@ -11,12 +11,14 @@ type Tab<T extends string> = { value: T; label: string; accessibilityLabel?: str
 type Panel<T extends string> = { value: T; children: React.ReactNode };
 
 /** A single moving selection surface, with stable button hit areas. */
-export function SegmentedTabs<T extends string>({ items, selected, onSelect, idPrefix, testID }: {
+export function SegmentedTabs<T extends string>({ items, selected, onSelect, idPrefix, testID, compact = false }: {
     items: Tab<T>[];
     selected: T;
     onSelect: (value: T) => void;
     idPrefix?: string;
     testID?: string;
+    /** Keep longer labels readable in narrow, three-way controls. */
+    compact?: boolean;
 }) {
     const { theme } = useUnistyles();
     const motion = usePersonalizationMotion();
@@ -56,9 +58,9 @@ export function SegmentedTabs<T extends string>({ items, selected, onSelect, idP
                 onKeyDown: (event: React.KeyboardEvent) => keyDown(event, i),
             } : {})}
             onPress={() => onSelect(item.value)}
-            style={{ flex: 1, minWidth: 0, flexDirection: 'row', gap: 4, minHeight: 38, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 9 }}>
+            style={{ flex: 1, minWidth: 0, flexDirection: 'row', gap: 4, minHeight: 38, alignItems: 'center', justifyContent: 'center', paddingHorizontal: compact ? 6 : 12, paddingVertical: 8, borderRadius: 9 }}>
             {item.leading}
-            <Text style={{ fontSize: 13, color: theme.colors.text, fontWeight: selected === item.value ? '600' : '400' }}>{item.label}</Text>
+            <Text style={{ fontSize: 13, lineHeight: compact ? 18 : undefined, textAlign: 'center', color: theme.colors.text, fontWeight: selected === item.value ? '600' : '400' }}>{item.label}</Text>
         </InteractionPressable>)}
     </View>;
 }

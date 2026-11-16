@@ -16,6 +16,7 @@ vi.mock('@/components/StyledText', () => ({ Text: 'Text' }));
 vi.mock('@/components/FileIcon', () => ({ FileIcon: () => null }));
 vi.mock('@/components/markdown/MarkdownView', () => ({ MarkdownView: 'MarkdownView' }));
 vi.mock('@/components/lmc/SettingsSelect', () => ({ SettingsMenuHost: 'SettingsMenuHost', SettingsSelect: 'SettingsSelect' }));
+vi.mock('@/components/lmc/SegmentedTabs', () => ({ SegmentedTabs: 'SegmentedTabs' }));
 vi.mock('@/sync/storage', () => ({ useAllSessions: () => [] }));
 vi.mock('@/sync/apiAccounts', () => ({ accountMe: vi.fn(() => Promise.resolve({ capabilities: { fileSharing: false } })) }));
 vi.mock('@/components/lmc/ResourceSharingDialog', () => ({ openResourceSharing: vi.fn() }));

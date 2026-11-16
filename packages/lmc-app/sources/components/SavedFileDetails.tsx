@@ -8,6 +8,7 @@ import { fileSize } from '@/utils/fileSize';
 import { FileIcon } from '@/components/FileIcon';
 import { MarkdownView } from '@/components/markdown/MarkdownView';
 import { SettingsMenuHost, SettingsSelect } from '@/components/lmc/SettingsSelect';
+import { SegmentedTabs } from '@/components/lmc/SegmentedTabs';
 import { useAllSessions } from '@/sync/storage';
 import { getFileAsset, downloadFileAsset, fileAssetBlob, deliverFileAsset, getFileDeliveries, decryptFileReceipt, createFileShare, getFileShares, revokeFileShare, FILE_PREVIEW_LIMIT, type OpenFileAsset } from '@/sync/apiFileAssets';
 import type { FileDelivery, FileShare } from 'lmc-wire';
@@ -30,6 +31,7 @@ async function readPreview(file: OpenFileAsset, signal: AbortSignal) {
 export function SavedFileDetails({ id }: { id: string }) {
     const { theme } = useUnistyles();
     const [tab, setTab] = React.useState<'preview' | 'share' | 'send'>('preview');
+    const tabsId = React.useId();
     const [accountSharing, setAccountSharing] = React.useState(false);
     React.useEffect(() => { let active = true; void accountMe().then(v => { if (active) setAccountSharing(v.capabilities.fileSharing); }).catch(() => {}); return () => { active = false; }; }, []);
     const sessions = useAllSessions();
@@ -134,15 +136,12 @@ export function SavedFileDetails({ id }: { id: string }) {
                     {(busy === downloadingLabel || busy === loadingPreviewLabel) && <Pressable style={textActionFrame} accessibilityRole="button" onPress={() => controller.current?.abort()}><Text style={{ color: theme.colors.textLink }}>{t('common.cancel')}</Text></Pressable>}</View>}
                 {!!notice && <Text accessibilityLiveRegion="polite" style={{ color: theme.colors.textSecondary }}>{notice}</Text>}
                 {!!error && <Text accessibilityRole="alert" style={{ color: theme.colors.textDestructive }}>{error}</Text>}
-                <View style={{ flexDirection: 'row', gap: 4, borderBottomWidth: 1, borderColor: theme.colors.divider }}>
-                    {([['preview', t('lmc.savedFiles.tabPreview')], ['share', t('lmc.savedFiles.tabShare')], ['send', t('lmc.savedFiles.tabSend')]] as const).filter(([value]) => !file.shared || value === 'preview').map(([value, label]) => (
-                        <Pressable key={value} accessibilityRole="tab" accessibilityState={{ selected: tab === value }} onPress={() => setTab(value)}
-                            style={{ borderRadius: 8, paddingHorizontal: 12, paddingVertical: 12, borderBottomWidth: 2, borderBottomColor: tab === value ? theme.colors.textLink : 'transparent' }}>
-                            <Text style={{ fontSize: 14, color: tab === value ? theme.colors.textLink : theme.colors.textSecondary }}>{label}</Text>
-                        </Pressable>
-                    ))}
+                <View style={{ width: '100%', maxWidth: file.shared ? 160 : 480, alignSelf: 'flex-start' }}>
+                    <SegmentedTabs compact selected={tab} onSelect={setTab} idPrefix={tabsId} testID="saved-file-tabs"
+                        items={([['preview', t('lmc.savedFiles.tabPreview')], ['share', t('lmc.savedFiles.tabShare')], ['send', t('lmc.savedFiles.tabSend')]] as const)
+                            .filter(([value]) => !file.shared || value === 'preview').map(([value, label]) => ({ value, label }))} />
                 </View>
-                {tab === 'preview' && <View style={{ gap: 16, minHeight: 180 }}>
+                {tab === 'preview' && <View nativeID={`${tabsId}-panel-preview`} role={Platform.OS === 'web' ? 'tabpanel' : undefined} aria-labelledby={`${tabsId}-tab-preview`} style={{ gap: 16, minHeight: 180 }}>
                 {preview?.url && Platform.OS === 'web' && (previewType === 'image'
                     ? React.createElement('img', { src: preview.url, alt: file.manifest.name, style: { maxWidth: '100%', maxHeight: 600, objectFit: 'contain' } })
                     : React.createElement('iframe', { src: preview.url, title: file.manifest.name, sandbox: '', style: { width: '100%', height: 560, border: 0 } }))}
@@ -160,7 +159,7 @@ export function SavedFileDetails({ id }: { id: string }) {
                     {previewType && Platform.OS !== 'web' && <Text style={{ color: theme.colors.textSecondary }}>{t('lmc.savedFiles.previewWebOnly')}</Text>}
                     {previewType && file.manifest.size > FILE_PREVIEW_LIMIT && <Text style={{ color: theme.colors.textSecondary }}>{t('lmc.savedFiles.previewTooLarge')}</Text>}
                 </View>}
-                {tab === 'share' && <View style={{ gap: 12 }}>
+                {tab === 'share' && <View nativeID={`${tabsId}-panel-share`} role={Platform.OS === 'web' ? 'tabpanel' : undefined} aria-labelledby={`${tabsId}-tab-share`} style={{ gap: 12 }}>
                     <Text style={{ fontSize: 16, fontWeight: '600', color: theme.colors.text }}>{t('lmc.savedFiles.expiringLinkTitle')}</Text>
                     <Text style={{ color: theme.colors.textSecondary }}>{t('lmc.savedFiles.expiringLinkIntro')}</Text>
                     <SettingsSelect value={shareHours} onChange={setShareHours} title={t('lmc.savedFiles.linkValidity')} options={[
@@ -192,7 +191,7 @@ export function SavedFileDetails({ id }: { id: string }) {
                         }))}</View>}
                     </View>)}
                 </View>}
-                {tab === 'send' && <View style={{ gap: 12 }}>
+                {tab === 'send' && <View nativeID={`${tabsId}-panel-send`} role={Platform.OS === 'web' ? 'tabpanel' : undefined} aria-labelledby={`${tabsId}-tab-send`} style={{ gap: 12 }}>
                     <Text style={{ fontSize: 16, fontWeight: '600', color: theme.colors.text }}>{t('lmc.savedFiles.sendToSessionTitle')}</Text>
                     <Text style={{ color: theme.colors.textSecondary }}>{t('lmc.savedFiles.sendToSessionIntro')}</Text>
                     <SettingsSelect value={selected} onChange={setSelected} title={t('lmc.savedFiles.selectTargetSession')} options={[
