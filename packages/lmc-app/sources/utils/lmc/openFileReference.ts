@@ -57,7 +57,7 @@ export async function openFileReference(sessionId: string | undefined, path: str
         // The viewer reads it again: it owns editing, conflict detection and
         // polling, and threading one pre-read copy through that is worth less
         // than the second request costs.
-        if (!openSessionFile(path)) showToast(t('lmc.files.noViewer'), 'error');
+        if (!openSessionFile(path, sessionId)) showToast(t('lmc.files.noViewer'), 'error');
     } catch (error) {
         showToast(t('lmc.files.cannotOpen', { name, reason: error instanceof Error ? error.message : t('files.failedToRead') }), 'error');
     }

@@ -1,7 +1,7 @@
 import { iconActionFrame } from '@/components/interactionGeometry';
 /**
  * File view/edit overlay panel.
- * Shown in the main content area when a file is selected from the "All Files" sidebar tab.
+ * Hosted by a floating file dialog or the project-files dialog.
  * Renders file content with the diff renderer's markdown/plain views, CodeMirror for editing (web only).
  */
 import * as React from 'react';
@@ -26,7 +26,7 @@ import { showToast } from '@/components/lmc/Toast';
 interface FileViewPanelProps {
     sessionId: string;
     filePath: string;
-    /** Publishes the right-side controls (edit/preview toggle, save button) into the chat header. */
+    /** Publishes edit/preview/save controls to the hosting dialog. */
     onHeaderRightSlotChange: (slot: React.ReactNode) => void;
 }
 
@@ -45,7 +45,7 @@ function getFileLanguage(path: string): string | null {
         html: 'html', htm: 'html',
         css: 'css',
         json: 'json',
-        md: 'markdown',
+        md: 'markdown', markdown: 'markdown',
         xml: 'xml',
         yaml: 'yaml', yml: 'yaml',
         sh: 'bash', bash: 'bash',
@@ -119,7 +119,7 @@ export const FileViewPanel = React.memo(function FileViewPanel({
     const [fileState, setFileState] = React.useState<FileState>({ kind: 'loading' });
     const [editContent, setEditContent] = React.useState('');
     const [isSaving, setIsSaving] = React.useState(false);
-    const [displayMode, setDisplayMode] = React.useState<'edit' | 'preview'>('edit');
+    const [displayMode, setDisplayMode] = React.useState<'edit' | 'preview'>('preview');
 
     // External change detection
     const [externalChange, setExternalChange] = React.useState<string | null>(null); // new content from device
@@ -135,6 +135,7 @@ export const FileViewPanel = React.memo(function FileViewPanel({
     React.useEffect(() => {
         let cancelled = false;
         setFileState({ kind: 'loading' });
+        setDisplayMode('preview');
         setExternalChange(null);
         setShowConflictDiff(false);
 
@@ -290,12 +291,11 @@ export const FileViewPanel = React.memo(function FileViewPanel({
         }
     }, [sessionId, filePath, editContent, fileState, canWrite]);
 
-    // Publish right-slot controls (edit/preview toggle, save button) into the chat header.
+    // Keep file controls in the hosting dialog, separate from the chat header.
     const isLoaded = fileState.kind === 'loaded';
     React.useEffect(() => {
         onHeaderRightSlotChange(
             <FileHeaderRight
-                isMarkdown={isMarkdown}
                 isLoaded={isLoaded}
                 displayMode={displayMode}
                 onDisplayModeChange={setDisplayMode}
@@ -417,10 +417,7 @@ export const FileViewPanel = React.memo(function FileViewPanel({
                     style={{ flex: 1 }}
                     contentContainerStyle={{ padding: 16, maxWidth: layout.maxWidth, alignSelf: 'center', width: '100%' }}
                 >
-                    {Platform.OS === 'web' && <EditorPreviewStyles />}
-                    <View {...(Platform.OS === 'web' ? { className: 'editor-preview-wrap' } as any : {})}>
-                        <MarkdownView markdown={editContent} sessionId={sessionId} />
-                    </View>
+                    <MarkdownView markdown={editContent} sessionId={sessionId} presentation="prose" inferOptions={false} />
                 </ScrollView>
             ) : (
                 <View style={{ flex: 1, maxWidth: layout.maxWidth, alignSelf: 'center', width: '100%' }}>
@@ -428,7 +425,7 @@ export const FileViewPanel = React.memo(function FileViewPanel({
                         value={editContent}
                         onChange={setEditContent}
                         language={language}
-                        readOnly={!canWrite}
+                        readOnly={!canWrite || displayMode !== 'edit'}
                     />
                 </View>
             )}
@@ -438,7 +435,6 @@ export const FileViewPanel = React.memo(function FileViewPanel({
 
 /** Right-side header controls for the file-view overlay. */
 const FileHeaderRight = React.memo(function FileHeaderRight({
-    isMarkdown,
     isLoaded,
     displayMode,
     onDisplayModeChange,
@@ -447,7 +443,6 @@ const FileHeaderRight = React.memo(function FileHeaderRight({
     onSave,
     canWrite,
 }: {
-    isMarkdown: boolean;
     isLoaded: boolean;
     displayMode: 'edit' | 'preview';
     onDisplayModeChange: (mode: 'edit' | 'preview') => void;
@@ -459,9 +454,10 @@ const FileHeaderRight = React.memo(function FileHeaderRight({
     const { theme } = useUnistyles();
     return (
         <>
-            {canWrite && isMarkdown && isLoaded && (
+            {canWrite && isLoaded && (
                 <View style={[styles.toggleRow, { backgroundColor: theme.colors.groupped.background, borderColor: theme.colors.divider }]}>
                     <Pressable
+                        accessibilityRole="button"
                         onPress={() => onDisplayModeChange('edit')}
                         style={[
                             styles.toggleButton,
@@ -478,6 +474,7 @@ const FileHeaderRight = React.memo(function FileHeaderRight({
                         </Text>
                     </Pressable>
                     <Pressable
+                        accessibilityRole="button"
                         onPress={() => onDisplayModeChange('preview')}
                         style={[
                             styles.toggleButton,
@@ -490,13 +487,14 @@ const FileHeaderRight = React.memo(function FileHeaderRight({
                             displayMode === 'preview' && styles.toggleTextActive,
                             displayMode === 'preview' && { color: theme.colors.text },
                         ]}>
-                            Preview
+                            {t('lmc.resources.preview')}
                         </Text>
                     </Pressable>
                 </View>
             )}
             {canWrite && isLoaded && (
                 <Pressable
+                    accessibilityRole="button"
                     onPress={onSave}
                     disabled={!hasChanges || isSaving}
                     style={({ pressed }) => [
@@ -521,33 +519,6 @@ const FileHeaderRight = React.memo(function FileHeaderRight({
             )}
         </>
     );
-});
-
-/** CSS overrides to make MarkdownView match the editor look (web only) */
-const EditorPreviewStyles = React.memo(function EditorPreviewStyles() {
-    React.useEffect(() => {
-        const id = 'editor-preview-styles';
-        let el = document.getElementById(id);
-        if (!el) {
-            el = document.createElement('style');
-            el.id = id;
-            document.head.appendChild(el);
-        }
-        el.textContent = `
-.editor-preview-wrap div[dir] {
-    font-family: ui-monospace, "SF Mono", "Cascadia Code", "Segoe UI Mono", Menlo, Monaco, Consolas, monospace !important;
-    font-size: 14px !important;
-    line-height: 1.5 !important;
-}
-.editor-preview-wrap div[dir] div[style*="background"] {
-    border-radius: 6px;
-}
-`;
-        return () => {
-            // Don't remove — other instances might still be mounted
-        };
-    }, []);
-    return null;
 });
 
 /**
@@ -599,7 +570,7 @@ const EditorView = React.memo(function EditorView({
 
 const styles = StyleSheet.create((theme) => ({
     outer: {
-        flex: 1,
+        flex: 1, minWidth: 0, minHeight: 0, overflow: 'hidden', backgroundColor: theme.colors.surface,
     },
     actionButton: {
         flexDirection: 'row',

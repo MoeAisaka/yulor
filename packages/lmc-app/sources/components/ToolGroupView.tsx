@@ -70,7 +70,7 @@ export const ToolGroupView = React.memo<ToolGroupViewProps>((props) => {
             ? singleToolMessage.tool.input.file_path
             : null;
         if (filePath) {
-            if (!openSessionFile(filePath)) router.push(`/session/${sessionId}/file?path=${btoa(filePath)}`);
+            if (!openSessionFile(filePath, sessionId)) router.push(`/session/${sessionId}/file?path=${btoa(filePath)}`);
             return;
         }
         if (!openToolDetail(singleToolMessage.id)) router.push(`/session/${sessionId}/message/${singleToolMessage.id}`);
@@ -317,7 +317,7 @@ function ToolSummaryRow(props: {
     const isPressable = Boolean(props.sessionId);
     const handlePress = React.useCallback(() => {
         if (filePath) {
-            if (!openSessionFile(filePath)) router.push(`/session/${props.sessionId}/file?path=${btoa(filePath)}`);
+            if (!openSessionFile(filePath, props.sessionId)) router.push(`/session/${props.sessionId}/file?path=${btoa(filePath)}`);
             return;
         }
         if (!openToolDetail(props.message.id)) router.push(`/session/${props.sessionId}/message/${props.message.id}`);

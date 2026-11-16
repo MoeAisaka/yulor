@@ -78,8 +78,7 @@ import { useDeviceType, useHeaderHeight, useIsLandscape, useIsTablet } from '@/u
 import { resolveStatusBarGitBranch } from '@/utils/sessionStatusBar';
 import { visibleRigGitLineChanges } from '@/utils/rigGitLineChanges';
 import { FilesSidebar, SidebarMode } from '@/components/FilesSidebar';
-import { AllFilesDiffView } from '@/components/AllFilesDiffView';
-import { FileViewPanel } from '@/components/FileViewPanel';
+import { SessionPreviewDialog } from '@/components/lmc/SessionPreviewDialog';
 import { GitFileStatus } from '@/sync/gitStatusFiles';
 import { useOverlayNav } from '@/-session/sessionOverlayNav';
 import { resolveDesktopSidebarWidth, useSidebarMetrics } from '@/components/lmc/sidebarMetrics';
@@ -303,7 +302,7 @@ export const SessionView = React.memo((props: { id: string }) => {
 
     // Overlay state is managed as a browser-style history stack so the
     // sidebar's back / forward arrows can navigate between chat ↔ diff ↔ file
-    // without a per-overlay close button. Stack + cursor live in one piece
+    // while keeping the chat mounted. Stack + cursor live in one piece
     // of state so functional updates stay coordinated.
     type OverlayEntry =
         | { kind: 'none' }
@@ -331,12 +330,13 @@ export const SessionView = React.memo((props: { id: string }) => {
     // transcript underneath keeps its scroll position and streaming state.
     React.useEffect(() => {
         useToolOverlay.getState().setOpener((messageId: string) => pushOverlay({ kind: 'tool', messageId }));
-        useToolOverlay.getState().setFileOpener((path: string) => pushOverlay({ kind: 'file', path }));
+        const openFile = (path: string) => pushOverlay({ kind: 'file', path });
+        useToolOverlay.getState().setFileOpener(openFile, sessionId);
         return () => {
             useToolOverlay.getState().setOpener(null);
-            useToolOverlay.getState().setFileOpener(null);
+            if (useToolOverlay.getState().openFile === openFile) useToolOverlay.getState().setFileOpener(null);
         };
-    }, [pushOverlay]);
+    }, [pushOverlay, sessionId]);
 
     const handleSidebarFilePress = React.useCallback((file: GitFileStatus) => {
         if (file.status === 'deleted') return;
@@ -346,20 +346,9 @@ export const SessionView = React.memo((props: { id: string }) => {
         pushOverlay({ kind: 'file', path: filePath });
     }, [pushOverlay]);
 
-    // When sidebar capability is lost (screen too narrow, disabled), close views.
-    // Don't close on zen mode toggle — keep the view visible.
-    React.useEffect(() => {
-        if (!canShowSidebar) {
-            setOverlayHistory({ stack: [{ kind: 'none' }], cursor: 0 });
-        }
-    }, [canShowSidebar]);
-
-    // Right-side header content published by the active overlay (diff toggle / save button).
-    const [headerRightSlot, setHeaderRightSlot] = React.useState<React.ReactNode>(null);
-
     // Leaving an overlay: step back through the stack, or drop straight to the
-    // chat when this is the only entry. The header's close button and the
-    // phone overlays share it so every surface exits the same way.
+    // chat when this is the only entry. Floating previews and tool details
+    // share it so every surface exits the same way.
     const closeOverlay = React.useCallback(() => {
         if (!useOverlayNav.getState().back()) {
             setOverlayHistory({ stack: [{ kind: 'none' }], cursor: 0 });
@@ -537,14 +526,12 @@ export const SessionView = React.memo((props: { id: string }) => {
                 )}
             </View>
 
-            {fileViewPath && !canShowSidebar && (
-                <SessionToolOverlay
-                    sessionId={sessionId}
-                    filePath={fileViewPath}
-                    top={safeArea.top + mobileHeaderHeight + 8}
-                    onClose={closeOverlay}
-                />
-            )}
+            {(fileViewPath || diffViewOpen) && <SessionPreviewDialog
+                sessionId={sessionId}
+                filePath={fileViewPath ?? undefined}
+                diffFile={scrollToFile}
+                onClose={closeOverlay}
+            />}
             {toolOverlayMessageId && (
                 <SessionToolOverlay
                     sessionId={sessionId}
@@ -638,32 +625,9 @@ export const SessionView = React.memo((props: { id: string }) => {
                         folderName={headerProps.folderName}
                         isConnected={headerProps.isConnected}
                         backdropVisible={headerBackdropVisible}
-                        extraPathSegment={fileViewPath ?? undefined}
                         rightSlot={
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                                {(diffViewOpen || !!fileViewPath) ? headerRightSlot : headerRight}
-                                {/* The overlay replaces the header's own actions, and on
-                                    tablet ChatHeaderView renders no back button — without
-                                    this the only exit is the sidebar chevron, which sits
-                                    far from the content being closed. */}
-                                {(diffViewOpen || !!fileViewPath) && (
-                                    <Pressable
-                                        accessibilityRole="button"
-                                        accessibilityLabel={t('lmc.common.close')}
-                                        onPress={closeOverlay}
-                                        hitSlop={10}
-                                        style={({ pressed }) => ({
-                                            width: 32,
-                                            height: 32,
-                                            borderRadius: 10,
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent',
-                                        })}
-                                    >
-                                        <Ionicons name="close" size={18} color={theme.colors.header.tint} />
-                                    </Pressable>
-                                )}
+                                {headerRight}
                                 {(!isTablet || Platform.OS === 'web') && paneActions}
                             </View>
                         }
@@ -685,52 +649,14 @@ export const SessionView = React.memo((props: { id: string }) => {
     }
 
     // Desktop layout: chat + animated sidebar at the same level (full height).
-    // When a sidebar file is selected, InlineFileDiff overlays the main content
-    // (chat stays mounted underneath so state is preserved).
+    // File and change previews use a modal portal; the chat remains mounted.
     return (
         <View style={{ flex: 1, flexDirection: 'row' }}>
             {/* Layout/paint containment would capture the fixed header and let
                 an ancestor scroll it offscreen, including on tablet browsers. */}
             <View style={{ flex: 1 }}>
                 {mainContent}
-                {diffViewOpen && canShowSidebar && (
-                    <View
-                        pointerEvents="box-none"
-                        style={{
-                            position: 'absolute',
-                            top: safeArea.top + mobileHeaderHeight,
-                            left: 0,
-                            right: 0,
-                            bottom: 0,
-                            backgroundColor: theme.colors.surface,
-                        }}
-                    >
-                        <AllFilesDiffView
-                            sessionId={sessionId}
-                            scrollToFile={scrollToFile}
-                            onHeaderRightSlotChange={setHeaderRightSlot}
-                        />
-                    </View>
-                )}
-                {fileViewPath && canShowSidebar && (
-                    <View
-                        pointerEvents="box-none"
-                        style={{
-                            position: 'absolute',
-                            top: safeArea.top + mobileHeaderHeight,
-                            left: 0,
-                            right: 0,
-                            bottom: 0,
-                            backgroundColor: theme.colors.surface,
-                        }}
-                    >
-                        <FileViewPanel
-                            sessionId={sessionId}
-                            filePath={fileViewPath}
-                            onHeaderRightSlotChange={setHeaderRightSlot}
-                        />
-                    </View>
-                )}
+
             </View>
             <Animated.View {...(Platform.OS === 'web' ? {dataSet:{lmcResourceWindow:showSidebar?'open':'closed'}} : {})} pointerEvents={showSidebar ? 'auto' : 'none'} accessibilityElementsHidden={!showSidebar} importantForAccessibility={showSidebar ? 'auto' : 'no-hide-descendants'} style={{ position: 'absolute', right: 16, top: safeArea.top + mobileHeaderHeight + 12, width: sidebarWidth, height: Math.min(760, Math.max(280, windowHeight - 150)), maxHeight: '86%', ...(Platform.OS === 'web' ? { opacity: showSidebar ? 1 : 0, visibility: showSidebar ? 'visible' : 'hidden', transform: [{translateY:showSidebar?0:-8},{scale:showSidebar?1:.98}], transformOrigin: 'top right' } as any : {display: showSidebar ? 'flex' : 'none'}), borderRadius: 16, backgroundColor: theme.colors.surface, ...lmcSurfaceBorder(theme), ...lmcElevation(theme, 3), overflow: 'hidden', zIndex: 100 }}>
                 <View style={{padding: 12, flexDirection: 'row', alignItems: 'center', gap: 8}}>

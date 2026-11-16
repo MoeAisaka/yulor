@@ -52,7 +52,7 @@ export const ToolView = React.memo<ToolViewProps>((props) => {
         if (onPress) {
             onPress();
         } else if (sessionId && filePath) {
-            if (!openSessionFile(filePath)) router.push(`/session/${sessionId}/file?path=${btoa(filePath)}`);
+            if (!openSessionFile(filePath, sessionId)) router.push(`/session/${sessionId}/file?path=${btoa(filePath)}`);
         } else if (sessionId && messageId) {
             // Open in place over the transcript; a route push is the fallback
             // wherever no session view is mounted to host the overlay.
