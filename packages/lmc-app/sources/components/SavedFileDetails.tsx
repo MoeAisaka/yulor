@@ -6,6 +6,7 @@ import { useUnistyles } from 'react-native-unistyles';
 import { Text } from '@/components/StyledText';
 import { fileSize } from '@/utils/fileSize';
 import { FileIcon } from '@/components/FileIcon';
+import { MarkdownView } from '@/components/markdown/MarkdownView';
 import { SettingsMenuHost, SettingsSelect } from '@/components/lmc/SettingsSelect';
 import { useAllSessions } from '@/sync/storage';
 import { getFileAsset, downloadFileAsset, fileAssetBlob, deliverFileAsset, getFileDeliveries, decryptFileReceipt, createFileShare, getFileShares, revokeFileShare, FILE_PREVIEW_LIMIT, type OpenFileAsset } from '@/sync/apiFileAssets';
@@ -15,13 +16,15 @@ import { openResourceSharing } from '@/components/lmc/ResourceSharingDialog';
 import { t, getDateLocale } from '@/text';
 
 function previewTypeOf(file: OpenFileAsset) {
-    const mime = file.manifest.mimeType;
+    const mime = file.manifest.mimeType.split(';', 1)[0].trim().toLowerCase();
     return /^image\/(png|jpeg|webp|gif)$/.test(mime) ? 'image' : mime === 'application/pdf' ? 'pdf'
-        : /^(text\/(plain|markdown|csv)|application\/json)$/.test(mime) ? 'text' : null;
+        : /^text\/(markdown|x-markdown)$/.test(mime) || /\.(md|markdown)$/i.test(file.manifest.name) ? 'markdown'
+        : /^(text\/(plain|csv)|application\/json)$/.test(mime) ? 'text' : null;
 }
 async function readPreview(file: OpenFileAsset, signal: AbortSignal) {
     const blob = await fileAssetBlob(file, FILE_PREVIEW_LIMIT, undefined, signal);
-    return previewTypeOf(file) === 'text' ? { text: await blob.text() } : { url: URL.createObjectURL(blob) };
+    const type = previewTypeOf(file);
+    return type === 'text' || type === 'markdown' ? { text: await blob.text() } : { url: URL.createObjectURL(blob) };
 }
 
 export function SavedFileDetails({ id }: { id: string }) {
@@ -143,7 +146,9 @@ export function SavedFileDetails({ id }: { id: string }) {
                 {preview?.url && Platform.OS === 'web' && (previewType === 'image'
                     ? React.createElement('img', { src: preview.url, alt: file.manifest.name, style: { maxWidth: '100%', maxHeight: 600, objectFit: 'contain' } })
                     : React.createElement('iframe', { src: preview.url, title: file.manifest.name, sandbox: '', style: { width: '100%', height: 560, border: 0 } }))}
-                {preview?.text !== undefined && <Text selectable style={{ color: theme.colors.text, fontSize: 14, lineHeight: 24.5 }}>{preview.text}</Text>}
+                {preview?.text !== undefined && (previewType === 'markdown'
+                    ? <MarkdownView markdown={preview.text} presentation="prose" inferOptions={false} />
+                    : <Text selectable style={{ color: theme.colors.text, fontSize: 14, lineHeight: 24.5 }}>{preview.text}</Text>)}
                     {previewType && Platform.OS === 'web' && file.manifest.size <= FILE_PREVIEW_LIMIT && !preview && !busy && button(t('lmc.savedFiles.loadPreview'), () => void run(loadingPreviewLabel, async () => {
                         if (Platform.OS !== 'web') throw new Error(t('lmc.savedFiles.previewWebOnlyError'));
                         if (file.manifest.size > FILE_PREVIEW_LIMIT) throw new Error(t('lmc.savedFiles.previewLimitError'));

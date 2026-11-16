@@ -14,6 +14,7 @@ vi.mock('react-native', () => ({ View: 'View', ScrollView: 'ScrollView', Pressab
 vi.mock('react-native-unistyles', () => ({ useUnistyles: () => ({ theme: { colors: {} } }) }));
 vi.mock('@/components/StyledText', () => ({ Text: 'Text' }));
 vi.mock('@/components/FileIcon', () => ({ FileIcon: () => null }));
+vi.mock('@/components/markdown/MarkdownView', () => ({ MarkdownView: 'MarkdownView' }));
 vi.mock('@/components/lmc/SettingsSelect', () => ({ SettingsMenuHost: 'SettingsMenuHost', SettingsSelect: 'SettingsSelect' }));
 vi.mock('@/sync/storage', () => ({ useAllSessions: () => [] }));
 vi.mock('@/sync/apiAccounts', () => ({ accountMe: vi.fn(() => Promise.resolve({ capabilities: { fileSharing: false } })) }));
@@ -50,6 +51,38 @@ afterEach(async () => {
 });
 
 describe('saved file overlay content', () => {
+    it.each([
+        ['notes.md', 'text/markdown'],
+        ['NOTES.MD', 'text/plain'],
+        ['report.markdown', 'application/octet-stream'],
+        ['document', 'text/markdown; charset=utf-8'],
+        ['document', 'text/x-markdown'],
+    ])('renders %s (%s) as a Markdown document', async (name, mimeType) => {
+        const markdown = '# Report\n\n- **Finding**: `ready`\n\n| Item | Status |\n| --- | --- |\n| Preview | Ready |\n\n```ts\nconst ready = true;\n```';
+        api.getFileAsset.mockResolvedValue({ ...file, manifest: { ...file.manifest, name, mimeType } });
+        api.fileAssetBlob.mockResolvedValue(new Blob([markdown]));
+        await mount();
+        const document = renderer.root.findByType('MarkdownView');
+        expect(document.props.markdown).toBe(markdown);
+        expect(document.props.inferOptions).toBe(false);
+        expect(document.props.presentation).toBe('prose');
+        expect(api.createFileShare).not.toHaveBeenCalled();
+        expect(api.deliverFileAsset).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ['notes.txt', 'text/plain'],
+        ['data.csv', 'text/csv'],
+        ['data.json', 'application/json'],
+    ])('keeps %s as literal text', async (name, mimeType) => {
+        const text = '# Literal text\n**not formatting**';
+        api.getFileAsset.mockResolvedValue({ ...file, manifest: { ...file.manifest, name, mimeType } });
+        api.fileAssetBlob.mockResolvedValue(new Blob([text]));
+        await mount();
+        expect(renderer.root.findAllByType('MarkdownView')).toHaveLength(0);
+        expect(renderer.root.findAllByType('Text').some((node: any) => node.props.children === text)).toBe(true);
+    });
+
     it('previews on opening without creating a public share or sending a file, and copies the stable file URL', async () => {
         await mount();
         expect(api.fileAssetBlob).toHaveBeenCalledTimes(1);
