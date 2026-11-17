@@ -65,18 +65,33 @@ export function SegmentedTabs<T extends string>({ items, selected, onSelect, idP
     </View>;
 }
 
-/** Web panes share one intrinsic grid track, reserving the taller pane's height. */
-export function StableTabPanels<T extends string>({ items, selected, idPrefix, testID }: {
+/* Keep panes mounted for sliding; compact popovers can follow the active pane's height. */
+export function StableTabPanels<T extends string>({ items, selected, idPrefix, testID, fitContent = false }: {
     items: Panel<T>[];
     selected: T;
     idPrefix: string;
     testID?: string;
+    /** Animate to the active pane rather than reserving space for hidden content. */
+    fitContent?: boolean;
 }) {
     const motion = usePersonalizationMotion();
     const index = Math.max(0, items.findIndex(item => item.value === selected));
+    const activePanel = React.useRef<HTMLDivElement | null>(null);
+    const [activeHeight, setActiveHeight] = React.useState<number>();
+    React.useLayoutEffect(() => {
+        if (Platform.OS !== 'web' || !fitContent || !activePanel.current) return;
+        const panel = activePanel.current;
+        const measure = () => setActiveHeight(panel.getBoundingClientRect().height);
+        measure();
+        const observer = new ResizeObserver(measure);
+        observer.observe(panel);
+        return () => observer.disconnect();
+    }, [selected, fitContent]);
     if (Platform.OS !== 'web') return <View>{items[index]?.children}</View>;
-    return <div data-testid={testID} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', alignItems: 'start', minWidth: 0, overflow: 'hidden' }}>
-        {items.map((item, i) => <div key={item.value} id={`${idPrefix}-panel-${item.value}`} role="tabpanel" aria-labelledby={`${idPrefix}-tab-${item.value}`}
+    const duration = motionDuration(motion, 200);
+    return <div data-testid={testID} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', alignItems: 'start', minWidth: 0, overflow: 'hidden',
+        height: fitContent ? activeHeight : undefined, transition: fitContent ? `height ${duration}ms cubic-bezier(.215,.61,.355,1)` : undefined }}>
+        {items.map((item, i) => <div key={item.value} ref={i === index ? activePanel : undefined} id={`${idPrefix}-panel-${item.value}`} role="tabpanel" aria-labelledby={`${idPrefix}-tab-${item.value}`}
             aria-hidden={selected !== item.value} inert={selected !== item.value}
             style={{ gridArea: '1 / 1', width: '100%', minWidth: 0, boxSizing: 'border-box', pointerEvents: selected === item.value ? 'auto' : 'none',
                 transform: `translateX(${(i - index) * 100}%)`, transition: `transform ${motionDuration(motion, 200)}ms cubic-bezier(.215,.61,.355,1)` }}>
