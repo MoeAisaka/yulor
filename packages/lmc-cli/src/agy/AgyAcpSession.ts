@@ -47,6 +47,9 @@ import {
 const VALID_CONVERSATION_ID = /^[a-zA-Z0-9_-]{1,200}$/;
 const MAX_ACP_LINE_BYTES = 4 * 1024 * 1024;
 const CONTROL_RPC_TIMEOUT_MS = 30_000;
+// Large persisted histories need more time to restore than lightweight control RPCs.
+// Keep recovery bounded without dispatching or replaying a prompt before it is ready.
+const RESUME_RPC_TIMEOUT_MS = 120_000;
 const DEFAULT_CLOSE_SIGTERM_MS = 1_000;
 const DEFAULT_CLOSE_SIGKILL_MS = 2_000;
 const POST_EXIT_STDIO_DRAIN_MS = 200;
@@ -1702,7 +1705,7 @@ export class AgyAcpSession {
               cwd: this.cwd,
               mcpServers: [],
             },
-            CONTROL_RPC_TIMEOUT_MS,
+            RESUME_RPC_TIMEOUT_MS,
             true,
           ),
         );
@@ -1768,7 +1771,7 @@ export class AgyAcpSession {
             cwd: this.cwd,
             mcpServers: [],
           },
-          CONTROL_RPC_TIMEOUT_MS,
+          RESUME_RPC_TIMEOUT_MS,
           true,
         ),
       );

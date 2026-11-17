@@ -253,6 +253,68 @@ function sessionCatalogPayload(sessionId: string, currentModelId = 'gemini-4-arg
 }
 
 describe('AgyBackend persistent ACP mode', () => {
+  it.each(['complete', 'timeout', 'cancel'] as const)(
+    'allows slow session recovery beyond 30 seconds while keeping %s bounded and prompt-safe',
+    async (scenario) => {
+      const home = mkdtempSync(join(tmpdir(), 'lmc-agy-slow-resume-'));
+      const convId = 'slow-restored-conversation';
+      openTestConversationDb(home, convId).close();
+      const proc = createMockAcpProcess((msg, p) => {
+        if (msg.method === 'initialize') {
+          p.send({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: 1 } });
+        } else if (msg.method === 'session/resume' && scenario !== 'timeout') {
+          setTimeout(() => p.send({ jsonrpc: '2.0', id: msg.id, result: sessionCatalogPayload(convId) }), 45_000);
+        } else if (msg.method === 'session/set_mode' || msg.method === 'session/set_model') {
+          p.send({ jsonrpc: '2.0', id: msg.id, result: {} });
+        } else if (msg.method === 'session/prompt') {
+          p.send({ jsonrpc: '2.0', id: msg.id, result: { stopReason: 'end_turn' } });
+        }
+      });
+      vi.useFakeTimers();
+      const backend = new AgyBackend({
+        cwd: '/work', conversationId: convId, agyHomeDir: home, permissionMode: 'default',
+        transientStreamRetryDelaysMs: [], acpCancelGraceMs: 25,
+        acpCloseSigtermMs: 20, acpCloseSigkillMs: 20,
+        spawnFn: (() => proc) as unknown as SpawnFn,
+      });
+      let settled = false;
+      const pending = backend.sendPrompt(convId, 'Follow up after recovery').then(
+        () => { settled = true; return null; },
+        (err) => { settled = true; return err as Error; },
+      );
+      try {
+        await vi.advanceTimersByTimeAsync(30_100);
+        expect(proc.sent.some(msg => msg.method === 'session/resume')).toBe(true);
+        expect(settled).toBe(false);
+        expect(proc.killed).toBe(false);
+        expect(proc.sent.filter(msg => msg.method === 'session/prompt')).toHaveLength(0);
+        if (scenario === 'complete') {
+          await vi.advanceTimersByTimeAsync(15_000);
+          expect(await pending).toBeNull();
+          expect(proc.sent.filter(msg => msg.method === 'session/prompt')).toHaveLength(1);
+          expect(proc.sent.some(msg => msg.method === 'session/new')).toBe(false);
+        } else if (scenario === 'timeout') {
+          await vi.advanceTimersByTimeAsync(89_000);
+          expect(settled).toBe(false);
+          await vi.advanceTimersByTimeAsync(1_000);
+          expect((await pending)?.message).toMatch(/session\/resume timed out after 120000ms/);
+          expect(proc.killed).toBe(true);
+          expect(proc.sent.filter(msg => msg.method === 'session/prompt')).toHaveLength(0);
+        } else {
+          const cancelled = backend.cancel();
+          await vi.advanceTimersByTimeAsync(15_000);
+          await cancelled;
+          expect(await pending).toSatisfy(isAgyTurnCancelledError);
+          expect(proc.sent.filter(msg => msg.method === 'session/prompt')).toHaveLength(0);
+        }
+      } finally {
+        vi.useRealTimers();
+        await backend.dispose();
+        rmSync(home, { recursive: true, force: true });
+      }
+    },
+  );
+
   it('defaults to persistent agy acp --stdio across multiple turns with dynamic model/mode updates', async () => {
     const spawnCalls: { args: string[]; opts: any }[] = [];
     let promptCount = 0;
@@ -4220,7 +4282,8 @@ describe('AgyBackend persistent ACP mode', () => {
           resumeCalls += 1;
           const maxRow = db.prepare('SELECT COALESCE(MAX(idx), -1) AS maxIdx FROM steps').get() as { maxIdx: number };
           acpServerSeenStepCursor = maxRow.maxIdx;
-          p.send({ jsonrpc: '2.0', id: msg.id, result: sessionCatalogPayload(convId) });
+          // A large warm session also needs recovery time after autonomous steps.
+          setTimeout(() => p.send({ jsonrpc: '2.0', id: msg.id, result: sessionCatalogPayload(convId) }), 45_000);
         } else if (msg.method === 'session/set_mode' || msg.method === 'session/set_model') {
           p.send({ jsonrpc: '2.0', id: msg.id, result: {} });
         } else if (msg.method === 'session/prompt') {
@@ -4387,7 +4450,21 @@ describe('AgyBackend persistent ACP mode', () => {
       // Now send Turn 2: `AgyAcpSession` MUST invoke `session/resume` first so `ACPServer` skips steps 2..5!
       turnActive = true;
       envelopes.push(...sessionManager.startTurn());
-      await backend.sendPrompt('/work', '继续下一步');
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      try {
+        let settled = false;
+        const followup = backend.sendPrompt('/work', '继续下一步').then(
+          () => { settled = true; return null; },
+          (error) => { settled = true; return error; },
+        );
+        await vi.advanceTimersByTimeAsync(30_100);
+        expect(settled).toBe(false);
+        expect(proc.sent.filter(msg => msg.method === 'session/prompt')).toHaveLength(1);
+        await vi.advanceTimersByTimeAsync(15_000);
+        expect(await followup).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
       envelopes.push(...sessionManager.endTurn('completed'));
       turnActive = false;
 
