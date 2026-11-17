@@ -454,7 +454,7 @@ export async function runCodex(opts: {
         };
         const intent = readMessageIntent(message.meta);
         const queueKey = message.localKey;
-        const turnRunning = activeTurnModeHash !== null || thinking;
+        const turnRunning = activeTurnModeHash !== null || thinking || client.turnId !== null;
         if (intent === 'interrupt') {
             // Goes next: head of the queue, and the running turn is stopped.
             // An idle engine just picks it up. The queue survives the abort.
@@ -609,7 +609,7 @@ export async function runCodex(opts: {
     let publishedWait: string | null | undefined;
     const publishRefreshWait = () => {
         if (!configurationQueue.hasPendingRefresh || refreshHandoff) { publishedWait = undefined; return; }
-        const reason = thinking ? '等当前回合结束' : messageQueue.size() > 0 ? `等 ${messageQueue.size()} 条排队消息` : null;
+        const reason = (thinking || client.turnId !== null) ? '等当前回合结束' : messageQueue.size() > 0 ? `等 ${messageQueue.size()} 条排队消息` : null;
         if (publishedWait !== undefined && publishedWait === reason) return;
         publishedWait = reason;
         session.updateMetadata(m => m.sessionConfigState === 'queued' ? { ...m, sessionConfigError: reason ?? undefined } : m);
@@ -638,7 +638,7 @@ export async function runCodex(opts: {
             sessionConfigRequestedAt: isPendingState(m.sessionConfigState) ? m.sessionConfigRequestedAt : Date.now() }));
         publishedWait = undefined;
         publishRefreshWait();
-        if (!thinking) { abortController.abort(); abortController = new AbortController(); }
+        if (!thinking && client.turnId === null) { abortController.abort(); abortController = new AbortController(); }
         return { status: 'queued' };
     });
 
@@ -750,7 +750,7 @@ export async function runCodex(opts: {
     session.rpcHandlerManager.registerHandler('abort', handleAbort);
     // The queue strip's withdraw / go-next buttons.
     registerQueueControlHandlers(session, messageQueue, {
-        isBusy: () => thinking || activeTurnModeHash !== null,
+        isBusy: () => thinking || activeTurnModeHash !== null || client.turnId !== null,
         interrupt: handleAbort,
         // Same conditions the send path checks before steering: the running
         // turn must still be the one this prompt was written against, and the
@@ -1044,6 +1044,7 @@ export async function runCodex(opts: {
         }
 
         if (msg.type === 'task_started' && !isSubagentScopedEvent) {
+            messageQueue.setConsumptionPaused(true);
             if (!thinking) {
                 logger.debug('thinking started');
                 thinking = true;
@@ -1053,12 +1054,19 @@ export async function runCodex(opts: {
             }
         }
         if (!isSubagentScopedEvent && (msg.type === 'task_complete' || msg.type === 'turn_aborted')) {
+            messageQueue.setConsumptionPaused(false);
             if (thinking) {
                 logger.debug('thinking completed');
                 thinking = false;
                 progress.setBusy(false);
                 session.keepAlive(thinking, 'remote');
                 publishRefreshWait();
+            }
+            // Native goal turns need not have an outer sendTurnAndWait to
+            // wake a refresh queued while the consumer was waiting for input.
+            if (configurationQueue.hasPending && messageQueue.size() === 0) {
+                abortController.abort();
+                abortController = new AbortController();
             }
             // Reset diff processor on task end or abort
             diffProcessor.reset();
@@ -1340,7 +1348,7 @@ export async function runCodex(opts: {
             logActiveHandles('loop-top');
             if (!configurationBlocked && !pending && messageQueue.size() === 0) {
                 try {
-                    await configurationQueue.drain(thinking, messageQueue.size(), async config => {
+                    await configurationQueue.drain(thinking || client.turnId !== null, messageQueue.size(), async config => {
                         if (config.refreshCli) {
                             await handleUserMessage.idle();
                             if (messageQueue.size()) throw new Error('Wait for queued messages before refreshing');
@@ -1401,7 +1409,7 @@ export async function runCodex(opts: {
                     session.updateMetadata(m => ({ ...m, sessionConfigState: 'error', sessionConfigError: error instanceof Error ? error.message : 'Configuration update failed', sessionConfigErrorKind: refreshErrorKind(error), sessionConfigUpdatedAt: Date.now() }));
                 }
                 if (shouldExit) break;
-                if (!configurationBlocked && configurationQueue.hasPending && !thinking && messageQueue.size() === 0) continue;
+                if (!configurationBlocked && configurationQueue.hasPending && !thinking && client.turnId === null && messageQueue.size() === 0) continue;
             }
 
             // Recovery must succeed BEFORE the queue emits a release receipt.
@@ -1425,6 +1433,7 @@ export async function runCodex(opts: {
             if (!message) {
                 // Capture the current signal to distinguish idle-abort from queue close
                 const waitSignal = abortController.signal;
+                messageQueue.setConsumptionPaused(client.turnId !== null);
                 const batch = await messageQueue.waitForMessagesAndGetAsString(waitSignal);
                 if (!batch) {
                     // If wait was aborted (e.g., remote abort with no active inference), ignore and continue
@@ -1619,8 +1628,8 @@ export async function runCodex(opts: {
                 activeTurnPermissionMode = undefined;
                 activeTurnIsHub = false;
                 hubDenialSent = false;
-                thinking = false;
-                progress.setBusy(false);
+                thinking = client.turnId !== null;
+                progress.setBusy(thinking);
                 session.keepAlive(thinking, 'remote');
                 emitReadyIfIdle({
                     pending,

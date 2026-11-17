@@ -55,6 +55,7 @@ export class MessageQueue2<T> {
     public queue: QueueItem<T>[] = []; // Made public for testing
     private waiter: ((hasMessages: boolean) => void) | null = null;
     private closed = false;
+    private consumptionPaused = false;
     private onMessageHandler: ((message: string, mode: T) => void) | null = null;
     private onChangeHandler: ((snapshot: QueueSnapshotItem[]) => void) | null = null;
     private onConsumeHandler: ((keys: string[]) => void) | null = null;
@@ -99,6 +100,16 @@ export class MessageQueue2<T> {
     /** Auto-mark matching future arrivals as already consumed in-turn without queuing a duplicate turn. */
     setAutoConsume(predicate: ((item: QueueItem<T>) => boolean) | null): void {
         this.autoConsumePredicate = predicate;
+    }
+
+    /** Native turns may continue without an outer sendTurnAndWait promise. */
+    setConsumptionPaused(paused: boolean): void {
+        this.consumptionPaused = paused;
+        if (!paused && this.queue.length > 0 && this.waiter) {
+            const waiter = this.waiter;
+            this.waiter = null;
+            waiter(true);
+        }
     }
 
     setQueueMode(mode: QueueMode): void {
@@ -302,8 +313,11 @@ export class MessageQueue2<T> {
         while (true) {
             if (abortSignal?.aborted) return null;
             const head = this.queue[0];
-            if (head) {
+            if (head && !this.consumptionPaused) {
                 if (!(await this.authorizeItem(head.key)) || this.queue[0] !== head) continue;
+                // Native continuation can start while shared admission is in flight.
+                if (abortSignal?.aborted) return null;
+                if (this.consumptionPaused) continue;
                 return this.collectBatch();
             }
             if (this.closed || !(await this.waitForMessages(abortSignal))) return null;
@@ -351,8 +365,8 @@ export class MessageQueue2<T> {
         }
         this.emitChange();
 
-        // Notify waiter if any
-        if (this.waiter) {
+        // Keep paused arrivals visible without waking the consumer.
+        if (this.waiter && !this.consumptionPaused) {
             logger.debug(`[MessageQueue2] Notifying waiter`);
             const waiter = this.waiter;
             this.waiter = null;
@@ -455,7 +469,7 @@ export class MessageQueue2<T> {
             };
 
             // Check again in case messages arrived or queue closed while setting up
-            if (this.queue.length > 0) {
+            if (this.queue.length > 0 && !this.consumptionPaused) {
                 if (abortHandler && abortSignal) {
                     abortSignal.removeEventListener('abort', abortHandler);
                 }

@@ -265,6 +265,7 @@ export class CodexAppServerClient {
     private pendingInterrupt: Promise<void> | null = null;
     private notificationProtocol: 'unknown' | 'legacy' | 'raw' = 'unknown';
     private completedTurnIds = new Set<string>();
+    private startedTurnIds = new Set<string>();
     private rawFileChangesByItemId = new Map<string, LegacyPatchChanges>();
     private rawSubagentActivitySignaturesByItemId = new Map<string, Set<string>>();
     // Approval callIds currently awaiting an answer. One codex item can raise
@@ -397,6 +398,19 @@ export class CodexAppServerClient {
         return true;
     }
 
+    private emitTurnStarted(turnId: string | null, message?: EventMsg): void {
+        if (turnId && (this.completedTurnIds.has(turnId) || this.startedTurnIds.has(turnId))) return;
+        if (turnId) {
+            this.startedTurnIds.add(turnId);
+            this._turnId = turnId;
+        }
+        this.markPendingTurnStarted(turnId);
+        this.eventHandler?.(message ?? {
+            type: 'task_started',
+            ...(turnId ? { turn_id: turnId } : {}),
+        });
+    }
+
     private emitRawTurnCompletion(
         turnId: string | null,
         status: string | null,
@@ -445,15 +459,7 @@ export class CodexAppServerClient {
         }
 
         if (method === 'turn/started') {
-            const turnId = this.extractTurnId(params);
-            if (turnId) {
-                this._turnId = turnId;
-            }
-            this.markPendingTurnStarted(turnId);
-            this.eventHandler?.({
-                type: 'task_started',
-                ...(turnId ? { turn_id: turnId } : {}),
-            });
+            this.emitTurnStarted(this.extractTurnId(params));
             return true;
         }
 
@@ -897,6 +903,7 @@ export class CodexAppServerClient {
         this._turnId = null;
         this.notificationProtocol = 'unknown';
         this.completedTurnIds.clear();
+        this.startedTurnIds.clear();
         if (!opts?.preserveThreadState) {
             this._threadId = null;
             this.threadDefaults = null;
@@ -1529,6 +1536,7 @@ export class CodexAppServerClient {
         this._turnId = null;
         this.threadDefaults = null;
         this.completedTurnIds.clear();
+        this.startedTurnIds.clear();
         this.rawFileChangesByItemId.clear();
         this.rawSubagentActivitySignaturesByItemId.clear();
     }
@@ -1869,12 +1877,9 @@ export class CodexAppServerClient {
                     || (eventThread && this._threadId && eventThread !== this._threadId)
                     || (msg.type !== 'task_started' && eventTurn && activeTurn && eventTurn !== activeTurn)
                     || (msg.type !== 'task_started' && eventTurn && this.completedTurnIds.has(eventTurn)))) return;
-                // Extract turn_id from task_started events
-                if (msg.type === 'task_started' && msg.turn_id) {
-                    this._turnId = msg.turn_id;
-                }
                 if (msg.type === 'task_started') {
-                    this.markPendingTurnStarted(msg.turn_id ?? msg.turnId ?? null);
+                    this.emitTurnStarted(msg.turn_id ?? msg.turnId ?? null, msg);
+                    return;
                 }
                 // Fire event handler first (so consumer processes the event)
                 this.eventHandler?.(msg);
@@ -1907,11 +1912,10 @@ export class CodexAppServerClient {
             logger.debug(`[CodexAppServer] Lifecycle notification: ${method}`);
             // Mark the turn as started so the completion guard lets it through.
             if (method === 'turn/started') {
-                const turnId = this.extractTurnId(params);
-                if (turnId) {
-                    this._turnId = turnId;
-                }
-                this.markPendingTurnStarted(turnId);
+                // Native automatic goals may send only the v2 start even after
+                // legacy item events selected that protocol. Publish the same
+                // normalized start, once, so a continued turn is never idle.
+                this.emitTurnStarted(this.extractTurnId(params));
             }
             // turn/completed is a fallback signal — for mid-inference interrupts,
             // Codex may only signal completion here (not via codex/event turn_aborted).

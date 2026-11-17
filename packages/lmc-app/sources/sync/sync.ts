@@ -1,3 +1,4 @@
+import { resolveSessionSendIntent } from '@/sync/sessionState';
 import { isMatchingQueueReceipt, isMatchingQueuedPromptMessage } from './queueReceiptRecovery';
 import { visibleTranscriptMessages } from './queuedMessageVisibility';
 import { resolveSessionLifecycle, resolveFetchedSessionLifecycle, type SessionLifecycle } from './sessionLifecycle';
@@ -862,7 +863,7 @@ class Sync {
             throw error;
         }
         const { displayText, source = 'chat', attachments, awaitDelivery = false } = options ?? {};
-        const intent = options?.intent ?? (source === 'option' && session.thinking && session.metadata?.sessionCapabilities?.turnQueue ? 'queue' : undefined);
+        const intent = resolveSessionSendIntent(session, source, options?.intent);
         const localId = randomUUID();
         const queueKey = intent === 'queue' && session.metadata?.sessionCapabilities?.turnQueueLifecycle ? localId : undefined;
 

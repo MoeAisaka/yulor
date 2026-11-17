@@ -2203,6 +2203,51 @@ describe('CodexAppServerClient sandbox integration', () => {
 
 
 describe('working state lifecycle isolation', () => {
+    it('reports a native automatic goal turn after the protocol has selected legacy events', async () => {
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+        const internal = client as any;
+        const event = vi.fn();
+        client.setEventHandler(event);
+        internal._threadId = 'main';
+        internal.notificationProtocol = 'legacy';
+
+        internal.handleNotification('turn/started', { threadId: 'main', turn: { id: 'native-goal' } });
+        expect(event).toHaveBeenCalledWith({ type: 'task_started', turn_id: 'native-goal' });
+        internal.handleNotification('turn/completed', { threadId: 'main', turn: { id: 'native-goal', status: 'completed' } });
+        expect(event.mock.calls.map(([message]) => message.type)).toEqual(['task_started', 'task_complete']);
+    });
+
+    it.each(['legacy-first', 'raw-first'])('emits one start when both protocols announce the same turn: %s', async (order) => {
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+        const internal = client as any;
+        const event = vi.fn();
+        client.setEventHandler(event);
+        internal._threadId = 'main';
+        const legacy = () => internal.handleNotification('codex/event/task_started', {
+            threadId: 'main', msg: { type: 'task_started', turn_id: 'same-turn' },
+        });
+        const raw = () => internal.handleNotification('turn/started', { threadId: 'main', turn: { id: 'same-turn' } });
+        if (order === 'legacy-first') { legacy(); raw(); } else { raw(); legacy(); }
+        expect(event.mock.calls.map(([message]) => message.type)).toEqual(['task_started']);
+    });
+
+    it('does not revive a completed native goal when its start notification arrives late', async () => {
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+        const internal = client as any;
+        const event = vi.fn();
+        client.setEventHandler(event);
+        internal._threadId = 'main';
+        internal.notificationProtocol = 'legacy';
+        internal.handleNotification('turn/completed', { threadId: 'main', turn: { id: 'already-done', status: 'completed' } });
+        event.mockClear();
+        internal.handleNotification('turn/started', { threadId: 'main', turn: { id: 'already-done' } });
+        expect(event).not.toHaveBeenCalled();
+        expect(client.turnId).toBeNull();
+    });
+
     it('preserves MCP question schema for the hub instead of treating a form as an empty approval', async () => {
         const { CodexAppServerClient } = await import('./codexAppServerClient');
         const client = new CodexAppServerClient();
@@ -2379,4 +2424,39 @@ it('keeps LMC reconnect identity out of Codex and its tools', async () => {
         expect(env?.HAPPY_RECONNECT_ENCRYPTION_KEY).toBeUndefined();
     } finally { await client.disconnect(); vi.unstubAllEnvs(); }
 });
+});
+
+
+it('retains a queue receipt across automatic native turns and stale completions', async () => {
+    const { CodexAppServerClient } = await import('./codexAppServerClient');
+    const { MessageQueue2 } = await import('@/utils/MessageQueue2');
+    const client = new CodexAppServerClient();
+    const internal = client as any;
+    const queue = new MessageQueue2<string>(mode => mode);
+    const released: string[][] = [];
+    queue.setLifecycleHandlers(keys => released.push(keys), () => {});
+    client.setEventHandler(message => {
+        if (message.type === 'task_started') queue.setConsumptionPaused(true);
+        if (message.type === 'task_complete' || message.type === 'turn_aborted') queue.setConsumptionPaused(false);
+    });
+    internal._threadId = 'main';
+    internal.notificationProtocol = 'legacy';
+    const start = (id: string) => internal.handleNotification('turn/started', { threadId: 'main', turn: { id } });
+    const finish = (id: string) => internal.handleNotification('turn/completed', { threadId: 'main', turn: { id, status: 'completed' } });
+    start('native-first');
+    const controller = new AbortController();
+    const next = queue.waitForMessagesAndGetAsString(controller.signal);
+    queue.push('queued user input', 'same', undefined, { key: 'native-input' });
+    finish('stale');
+    await new Promise(resolve => setImmediate(resolve));
+    expect(queue.size()).toBe(1);
+    expect(released).toEqual([]);
+    finish('native-first');
+    start('native-second');
+    await new Promise(resolve => setImmediate(resolve));
+    expect(queue.size()).toBe(1);
+    expect(released).toEqual([]);
+    finish('native-second');
+    expect((await next)?.message).toBe('queued user input');
+    expect(released).toEqual([['native-input']]);
 });

@@ -1,3 +1,4 @@
+import { resolveSessionSendIntent } from '@/sync/sessionState';
 import { iconActionFrame } from '@/components/interactionGeometry';
 import { openSessionFiles } from '@/components/lmc/SessionFilesDialog';
 import { SharedSessionComposer } from '@/components/lmc/SharedSessionComposer';
@@ -1097,8 +1098,8 @@ export function SessionViewLoaded({
     // knows intents never steers it on its own; idle sends carry none.
     const queueSupported = sessionSupportsTurnQueue(session.metadata);
     const handleSend = React.useCallback(() => {
-        sendComposer(queueSupported && session.thinking ? 'queue' : undefined);
-    }, [queueSupported, sendComposer, session.thinking]);
+        sendComposer(resolveSessionSendIntent(session, 'chat'));
+    }, [sendComposer, session]);
     const handleQueueWithdraw = React.useCallback((key: string) => {
         sessionDequeue(sessionId, key).then((removed) => {
             if (!removed) Modal.alert(t('lmc.queue.withdrawTooLate'));

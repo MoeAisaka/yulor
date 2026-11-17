@@ -630,3 +630,53 @@ describe('MessageQueue2 takeByKey / restore', () => {
         expect(queue.takeByKey('nope')).toBeNull();
     });
 });
+
+
+describe('native turn consumption pause', () => {
+    it('retains arrivals and emits no release until the native turn is idle', async () => {
+        const queue = new MessageQueue2<string>(mode => mode);
+        const released: string[][] = [];
+        queue.setLifecycleHandlers(keys => released.push(keys), () => {});
+        let resolved = false;
+        const next = queue.waitForMessagesAndGetAsString().then(batch => { resolved = true; return batch; });
+        queue.setConsumptionPaused(true);
+        queue.push('next user reply', 'same', undefined, { key: 'q-native' });
+        await new Promise(resolve => setImmediate(resolve));
+        expect(resolved).toBe(false);
+        expect(queue.snapshot().map(item => item.key)).toEqual(['q-native']);
+        expect(released).toEqual([]);
+        queue.setConsumptionPaused(false);
+        expect((await next)?.message).toBe('next user reply');
+        expect(released).toEqual([['q-native']]);
+    });
+
+    it('rechecks native readiness after asynchronous admission', async () => {
+        const queue = new MessageQueue2<string>(mode => mode);
+        let admit!: (value: boolean) => void;
+        queue.setExecutionGuard(() => new Promise(resolve => { admit = resolve; }));
+        const released: string[][] = [];
+        queue.setLifecycleHandlers(keys => released.push(keys), () => {});
+        queue.push('next', 'same', undefined, { key: 'q-race' });
+        const next = queue.waitForMessagesAndGetAsString();
+        queue.setConsumptionPaused(true);
+        admit(true);
+        await new Promise(resolve => setImmediate(resolve));
+        expect(queue.snapshot().map(item => item.key)).toEqual(['q-race']);
+        expect(released).toEqual([]);
+        queue.setExecutionGuard(async () => true);
+        queue.setConsumptionPaused(false);
+        expect((await next)?.message).toBe('next');
+        expect(released).toEqual([['q-race']]);
+    });
+
+    it.each(['abort', 'close'])('unblocks a paused consumer on %s without consuming input', async action => {
+        const queue = new MessageQueue2<string>(mode => mode);
+        queue.setConsumptionPaused(true);
+        queue.push('retained', 'same', undefined, { key: 'q-retained' });
+        const controller = new AbortController();
+        const next = queue.waitForMessagesAndGetAsString(controller.signal);
+        if (action === 'abort') controller.abort(); else queue.close();
+        expect(await next).toBeNull();
+        expect(queue.snapshot().map(item => item.key)).toEqual(['q-retained']);
+    });
+});
