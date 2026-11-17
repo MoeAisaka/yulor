@@ -8,7 +8,7 @@ import { InteractionPressable as Pressable } from '@/components/InteractionPress
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { MarkdownView } from "./markdown/MarkdownView";
-import { t } from '@/text';
+import { t, getDateLocale } from '@/text';
 import { Message, UserTextMessage, AgentTextMessage, ToolCallMessage } from "@/sync/typesMessage";
 import { Metadata } from "@/sync/storageTypes";
 import { ToolView } from "./tools/ToolView";
@@ -239,6 +239,20 @@ function AgentTextBlock(props: {
     sync.sendMessage(props.sessionId, option.prompt ?? option.title, { source: 'option' });
   }, [props.sessionId]);
 
+  const dateLocale = getDateLocale();
+  // Keep the recorded reply time stable when historical turns are reopened.
+  const timestamp = React.useMemo(() => {
+    const date = new Date(props.message.createdAt);
+    if (!Number.isFinite(date.getTime())) return null;
+    return {
+      label: date.toLocaleString(dateLocale, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }),
+      full: date.toLocaleString(dateLocale),
+    };
+  }, [props.message.createdAt, dateLocale]);
+
+  const timestampText = timestamp ? <Text testID="message-response-time" style={styles.agentMessageTime} numberOfLines={1}
+    accessibilityLabel={timestamp.full}>{timestamp.label}</Text> : null;
+
   // Hide thinking messages
   if (props.message.isThinking) {
     return null;
@@ -247,9 +261,12 @@ function AgentTextBlock(props: {
   return (
     <View style={styles.agentMessageContainer}>
       <MarkdownView markdown={props.message.text} inferOptions onOptionPress={handleOptionPress} sessionId={props.sessionId} />
-      {props.copyText ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+      {props.copyText ? <View testID="message-response-actions" style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <MessageCopyButton text={props.copyText} />
         <MessageImageCopyButton text={props.copyText} sessionId={props.sessionId} />
+        {timestamp && (Platform.OS === 'web'
+          ? <div title={timestamp.full} style={{ display: 'flex', minWidth: 0, flexShrink: 1 }}>{timestampText}</div>
+          : timestampText)}
       </View> : null}
     </View>
   );
@@ -463,6 +480,14 @@ const styles = StyleSheet.create((theme) => ({
     // one corner.
     borderRadius: 20,
     maxWidth: '100%',
+  },
+  agentMessageTime: {
+    color: theme.colors.textSecondary,
+    fontSize: 11,
+    lineHeight: 16,
+    fontVariant: ['tabular-nums'],
+    marginLeft: 2,
+    flexShrink: 1,
   },
   userCopyAction: {
     alignSelf: 'flex-end',
