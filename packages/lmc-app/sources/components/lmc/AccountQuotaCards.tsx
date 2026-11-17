@@ -23,6 +23,8 @@ const styles = StyleSheet.create(theme => ({
     name: { color: theme.colors.text, fontSize: 15, ...Typography.default('semiBold') },
     label: { color: theme.colors.textSecondary, fontSize: 12, lineHeight: 16, ...Typography.default() },
     note: { color: theme.colors.textSecondary, fontSize: 11, lineHeight: 16, ...Typography.default() },
+    windowValue: { flexDirection: 'row', alignItems: 'center', columnGap: 6 },
+    paceBalance: { minWidth: 0, flexShrink: 1, fontSize: 10, lineHeight: 14 },
     value: { color: theme.colors.text, fontSize: 24, lineHeight: 28, ...Typography.default('semiBold') },
     columns: { flexDirection: 'row' },
     window: { flex: 1, minWidth: 0, gap: 5, paddingRight: 10 },
@@ -54,7 +56,7 @@ export function AccountQuotaCards({ snapshot, loading, failed, available, now, o
     const chinese = getCurrentLanguage().startsWith('zh');
     // D23: the bar says how urgent the window is; a window the other one has
     // used up is greyed with the reason, since its headroom cannot be spent.
-    const renderWindow = (w: AccountQuotaWindow | undefined, label: string, weekly = false, overlay?: { left: number; width: number; color: string }[], blocked?: string) => {
+    const renderWindow = (w: AccountQuotaWindow | undefined, label: string, weekly = false, overlay?: { left: number; width: number; color: string }[], blocked?: string, balance?: number | null) => {
         const expired = !!w?.resetsAt && w.resetsAt <= now && !w.pending;
         const remaining = w?.remaining ?? null;
         const pace = w ? quotaDailyPace(w, now) : null;
@@ -62,7 +64,12 @@ export function AccountQuotaCards({ snapshot, loading, failed, available, now, o
         return <View style={[styles.window, weekly && styles.weekly]}>
             <View>
                 <Text style={styles.label}>{label}</Text>
-                <Text style={[styles.value, blocked && { color: theme.colors.textSecondary }]}>{remaining === null ? '—' : `${Math.round(remaining)}%`}</Text>
+                <View style={styles.windowValue}>
+                    <Text style={[styles.value, blocked && { color: theme.colors.textSecondary }]}>{remaining === null ? '—' : `${Math.round(remaining)}%`}</Text>
+                    {balance != null && <Text testID="quota-weekly-balance" style={[styles.note, styles.paceBalance, balance < 0 && { color: warn }]}>
+                        {t(balance < 0 ? 'localFeatures.quotaOverLabel' : 'localFeatures.quotaTodayLabel')} {t('localFeatures.quotaPoints', { points: n(Math.abs(balance)) })}
+                    </Text>}
+                </View>
             </View>
             <View accessibilityRole="progressbar" accessibilityLabel={label}
                 accessibilityValue={remaining === null ? { text: t('localFeatures.quotaUnknown') } : { min: 0, max: 100, now: remaining }} style={styles.track}>
@@ -126,14 +133,10 @@ export function AccountQuotaCards({ snapshot, loading, failed, available, now, o
                 </View> : <>
                 <View style={styles.columns}>
                     {renderWindow(p?.windows.find(w => w.id === 'five_hour'), t('localFeatures.quotaFiveHour'), false, undefined, exhausted === 'seven_day' ? t('localFeatures.quotaBlockedByWeekly') : undefined)}
-                    {renderWindow(weekly, t('localFeatures.quotaWeekly'), true, share ? [{ left: 0, width: share.covered, color: purple }, { left: weekly!.remaining!, width: share.overflow, color: warn }] : undefined, exhausted === 'five_hour' ? t('localFeatures.quotaBlockedByFiveHour') : undefined)}
+                    {renderWindow(weekly, t('localFeatures.quotaWeekly'), true, share ? [{ left: 0, width: share.covered, color: purple }, { left: weekly!.remaining!, width: share.overflow, color: warn }] : undefined, exhausted === 'five_hour' ? t('localFeatures.quotaBlockedByFiveHour') : undefined, today)}
                 </View>
                 </>}
-                {(today !== null || engine === 'claude' || p?.resetCredits) && <View style={styles.details}>
-                {today !== null && <View style={styles.detailRow}>
-                    <Text style={styles.note}>{t(today < 0 ? 'localFeatures.quotaOverLabel' : 'localFeatures.quotaTodayLabel')}</Text>
-                    <Text style={[styles.note, styles.detailValue, today < 0 && { color: warn }]}>{t('localFeatures.quotaPoints', { points: n(Math.abs(today)) })}</Text>
-                </View>}
+                {(engine === 'claude' || p?.resetCredits) && <View style={styles.details}>
                 {engine === 'claude' && <View style={styles.detailRow} testID="quota-fable-legend">
                     <View style={styles.legend}>
                         <View style={[styles.dot, { backgroundColor: share ? purple : theme.colors.textSecondary }]} />
@@ -156,6 +159,6 @@ export function AccountQuotaCards({ snapshot, loading, failed, available, now, o
         </View>
         {/* Refresh failures keep the existing sample and layout. Status belongs
             in the header/footer, not in extra rows that make both cards jump. */}
-        <Text numberOfLines={1} style={styles.note}>{!available ? t('localFeatures.quotaOffline') : failed ? t('localFeatures.quotaRetryHint') : t('localFeatures.quotaShared')}</Text>
+        {(!available || failed) && <Text numberOfLines={1} style={styles.note}>{!available ? t('localFeatures.quotaOffline') : t('localFeatures.quotaRetryHint')}</Text>}
     </View>;
 }
