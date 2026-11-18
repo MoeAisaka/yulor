@@ -143,7 +143,8 @@ export function SessionActionsPopover({
     visible,
 }: SessionActionsPopoverProps) {
     const styles = stylesheet;
-    const { theme } = useUnistyles();
+    // Read colors while hidden so opening the menu never uses a stale theme.
+    const { theme: { colors } } = useUnistyles();
     const safeArea = useSafeAreaInsets();
     const { height: windowHeight, width: windowWidth } = useWindowDimensions();
     const session = useSession(sessionId);
@@ -271,7 +272,7 @@ export function SessionActionsPopover({
 
     const actionItems = actions.map((action, index) => {
         const isLast = index === actions.length - 1;
-        const color = action.destructive ? theme.colors.status.error : theme.colors.text;
+        const color = action.destructive ? colors.status.error : colors.text;
         const shortcutLabel = formatShortcutChord(
             preferredModifier,
             SESSION_ACTION_SHORTCUTS[action.id],
@@ -317,8 +318,8 @@ export function SessionActionsPopover({
             onPress={() => runWhenArmed(() => { onClose(); openCollaborationSheet(sessionId); })}
             style={({ pressed }) => [styles.menuItem, styles.menuItemDivider, pressed && styles.menuItemPressed]}
         >
-            <Ionicons color={theme.colors.text} name="people-outline" size={18} />
-            <Text numberOfLines={1} style={[styles.menuItemLabel, { color: theme.colors.text }]}>
+            <Ionicons color={colors.text} name="people-outline" size={18} />
+            <Text numberOfLines={1} style={[styles.menuItemLabel, { color: colors.text }]}>
                 {t('lmc.orchestration.collaborationMenu')}
             </Text>
         </Pressable>
@@ -327,8 +328,8 @@ export function SessionActionsPopover({
     if (sharingAvailable && !session.shared) actionItems.push(
         <Pressable key="sharing" accessibilityRole="button" onPress={() => runWhenArmed(() => { onClose(); openResourceSharing('session', sessionId); })}
             style={({ pressed }) => [styles.menuItem, pressed && styles.menuItemPressed]}>
-            <Ionicons color={theme.colors.text} name="share-social-outline" size={18} />
-            <Text style={[styles.menuItemLabel, { color: theme.colors.text }]}>{t('lmc.sharing.settingsTitle')}</Text>
+            <Ionicons color={colors.text} name="share-social-outline" size={18} />
+            <Text style={[styles.menuItemLabel, { color: colors.text }]}>{t('lmc.sharing.settingsTitle')}</Text>
         </Pressable>
     );
 
@@ -340,11 +341,11 @@ export function SessionActionsPopover({
                 nativeEffect
                 glassEffectStyle="regular"
                 intensity={88}
-                tintColor={theme.colors.glass.overlayTint}
+                tintColor={colors.glass.overlayTint}
                 style={styles.card}
             >
                 {Platform.OS !== 'web' && (
-                    <View style={[styles.handle, { backgroundColor: theme.colors.textSecondary }]} />
+                    <View style={[styles.handle, { backgroundColor: colors.textSecondary }]} />
                 )}
                 {actionItems}
             </MobileGlassSurface>
@@ -387,7 +388,7 @@ export function SessionActionsPopover({
                             },
                         ]}
                     >
-                        <ScrollView style={[styles.card, { backgroundColor: theme.colors.header.background, maxHeight: Math.max(48, windowHeight - 2 * WEB_MENU_MARGIN) }]} keyboardShouldPersistTaps="handled">
+                        <ScrollView style={[styles.card, { backgroundColor: colors.header.background, maxHeight: Math.max(48, windowHeight - 2 * WEB_MENU_MARGIN) }]} keyboardShouldPersistTaps="handled">
                             {actionItems}
                         </ScrollView>
                     </View>
