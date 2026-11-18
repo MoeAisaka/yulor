@@ -43,6 +43,8 @@ python3 packages/lmc-app/scripts/release/publish-web.py \
 
 导出固定使用 `APP_ENV=production`、`EXPO_PUBLIC_DISABLE_ANALYTICS=1` 和 `--max-workers 2`，并通过 `env -u` 清除 `LMC_SERVER_URL`、`LMC_HOME_DIR`、`LMC_WEBAPP_URL`，避免本机开发配置进入产物。PATH 前置 `/opt/homebrew/bin`。`--out` 的相对路径以调用时所在目录为基准；默认路径不变。
 
+如果同一个已存文件服务有多个 Web 入口，在 App 目录的 `.env.production.local` 中将这些入口的完整源地址填入 `EXPO_PUBLIC_LMC_SAVED_FILE_ORIGINS`，以逗号分隔并保留非默认端口。导出后，通过这些地址发布的私有文件链接可在当前会话中打开浮窗。
+
 ## 同名资源哈希不一致怎么办
 
 默认拒绝同名不同内容的资产，且在任何线上写入前检查全部冲突。先比较新旧文件，确认它们确为同一模块，仅因依赖布局变化重新打包而内容不同、文件名未变，才可由发布负责人明确批准替换：

@@ -2,7 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { currentSavedFileId, savedFileIdFromLink } from './savedFileLink';
 const id = '11111111-1111-4111-8111-111111111110';
 const origin = 'https://lmc.example:8443';
-afterEach(() => { vi.unstubAllGlobals(); });
+afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+});
 describe('private saved file link routing', () => {
     it('recognizes same-host private links across public and preview ports and relative links', () => {
         for (const link of ['/saved-files/' + id, 'https://lmc.example/saved-files/' + id, origin + '/saved-files/' + id + '?from=chat']) {
@@ -24,5 +27,19 @@ describe('private saved file link routing', () => {
         vi.stubGlobal('__HAPPY_CONFIG__', { serverUrl: origin });
         expect(currentSavedFileId(origin + '/saved-files/' + id)).toBe(id);
         expect(currentSavedFileId('https://evil.example/saved-files/' + id)).toBeNull();
+    });
+    it('opens private file links published through a configured alternate Yulor origin', () => {
+        const canonical = 'https://lmc.example';
+        const alternate = 'https://lmc-preview.example:8443';
+        const path = '/saved-files/' + id;
+        vi.stubEnv('EXPO_PUBLIC_LMC_SAVED_FILE_ORIGINS', `${canonical}, ${alternate}`);
+        vi.stubGlobal('window', { location: { origin: canonical } });
+        expect(currentSavedFileId(alternate + path)).toBe(id);
+        expect(currentSavedFileId('https://lmc-preview.example:9443' + path)).toBeNull();
+        expect(currentSavedFileId('https://lmc-preview.example.evil.test:8443' + path)).toBeNull();
+        expect(currentSavedFileId(alternate + '/file-shares/' + id)).toBeNull();
+        expect(currentSavedFileId(alternate + path, canonical)).toBeNull();
+        vi.stubGlobal('window', { location: { origin: alternate } });
+        expect(currentSavedFileId(canonical + path)).toBe(id);
     });
 });
