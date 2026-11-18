@@ -806,6 +806,7 @@ function NewSessionScreen() {
     const [modelIndex, setModelIndex] = React.useState(0);
     const [effortIndex, setEffortIndex] = React.useState(0);
     const [isSpawning, setIsSpawning] = React.useState(false);
+    const [uploadSessionId, setUploadSessionId] = React.useState<string>();
     const [activePicker, setActivePicker] = React.useState<PickerType | null>(null);
     const [composerSettingsPage, setComposerSettingsPage] = React.useState<ComposerSettingPickerType | null>(null);
     const [mobileComposerHeight, setMobileComposerHeight] = React.useState(NATIVE_COMPOSER_RESERVED_HEIGHT);
@@ -1598,6 +1599,7 @@ function NewSessionScreen() {
 
                     // Send initial message if provided
                     if (trimmedPrompt || attachments.length > 0) {
+                        if (attachments.length) setUploadSessionId(result.sessionId);
                         await sync.sendMessage(result.sessionId, trimmedPrompt, { source: 'new_session', attachments });
                     }
 
@@ -1633,7 +1635,10 @@ function NewSessionScreen() {
                 : 'Failed to start session';
             Modal.alert(t('common.error'), errorMessage);
         } finally {
-            if (isMountedRef.current) setIsSpawning(false);
+            if (isMountedRef.current) {
+                setUploadSessionId(undefined);
+                setIsSpawning(false);
+            }
         }
     }, [agentWorkspaces, clearImages, allMachines, selectedChoice, canPickWorktree, creationFastActive, currentEffort?.key, currentModelKey, currentPermission?.key, effectiveAgentDefaults.effortLevel, effectiveAgentDefaults.modelMode, effectiveAgentDefaults.permissionMode, navigateToSession, picksWorkspaces, router, selectedAgent, selectedMachineId, selectedPath, selectedProjectId, worktreeKey]);
 
@@ -2430,7 +2435,7 @@ function NewSessionScreen() {
                 : undefined}
             style={[styles.inputBox, isNativeMobile && styles.mobileInputBox]}
         >
-            <AgentInputAttachmentStrip images={selectedImages} onRemove={removeImage} />
+            <AgentInputAttachmentStrip sessionId={uploadSessionId} images={selectedImages} onRemove={removeImage} />
             <View style={[styles.inputField, isNativeMobile && styles.mobileInputField]}>
                 <PromptInput
                     ref={composerInputRef}

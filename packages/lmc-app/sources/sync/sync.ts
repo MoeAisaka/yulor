@@ -76,7 +76,7 @@ import { resolveMessageModeMeta, UnsupportedPermissionModeError } from './messag
 import { MAX_ATTACHMENT_FILE_SIZE, type AttachmentPreview, type UploadedAttachment } from './attachmentTypes';
 import { requestAttachmentUpload, uploadEncryptedBlob } from './apiAttachments';
 import { ATTACHMENT_PART_SIZE, uploadInParts } from './largeAttachmentUpload';
-import { showToast } from '@/components/lmc/Toast';
+import { beginAttachmentUpload } from './attachmentUploadState';
 import { encryptBlob } from '@/encryption/blob';
 import { readFileBytes } from '@/utils/readFileBytes';
 import { Modal } from '@/modal';
@@ -709,6 +709,7 @@ class Sync {
     private async uploadAttachmentsForSession(
         sessionId: string,
         attachments: AttachmentPreview[],
+        progress: ReturnType<typeof beginAttachmentUpload>,
     ): Promise<{ uploaded: UploadedAttachment[]; failed: number; reason?: string }> {
         if (!this.credentials) return { uploaded: [], failed: attachments.length };
         const credentials = this.credentials;
@@ -724,6 +725,8 @@ class Sync {
         let reason: string | undefined;
 
         for (const attachment of attachments) {
+            const uploadedBefore = uploaded.length;
+            progress.update(attachment.id, { status: 'uploading' });
             try {
                 // A non-image file past one piece goes up in pieces, read from
                 // the browser's file one slice at a time (web only).
@@ -739,13 +742,13 @@ class Sync {
                             }
                         } else {
                             let shown = -1;
-                            const progress = (sent: number, total: number) => {
+                            const reportProgress = (sent: number, total: number) => {
                                 const percent = Math.floor(sent / total * 100);
                                 if (percent === shown) return;
                                 shown = percent;
-                                showToast(t('lmc.common.uploadingFile', { name: attachment.name, percent }));
+                                progress.update(attachment.id, { status: 'uploading', percent });
                             };
-                            progress(0, blob.size);
+                            reportProgress(0, blob.size);
                             const parts = await uploadInParts({
                                 blob,
                                 encrypt: bytes => encryptBlob(bytes, blobKey),
@@ -754,7 +757,7 @@ class Sync {
                                     await uploadEncryptedBlob(upload, encrypted, credentials);
                                     return upload.ref;
                                 },
-                                onProgress: progress,
+                                onProgress: reportProgress,
                             });
                             uploaded.push({ ref: parts[0], parts, name: attachment.name, size: blob.size, width: 0, height: 0 });
                             continue;
@@ -801,6 +804,8 @@ class Sync {
                 }
                 failed++;
                 // Skip this attachment; do not abort the whole message send.
+            } finally {
+                progress.update(attachment.id, { status: uploaded.length > uploadedBefore ? 'uploaded' : 'failed' });
             }
         }
 
@@ -900,7 +905,9 @@ class Sync {
 
         // Upload attachments and queue file events before the text message.
         if (effectiveAttachments && effectiveAttachments.length > 0) {
-            const { uploaded, failed, reason } = await this.uploadAttachmentsForSession(sessionId, effectiveAttachments);
+            const progress = beginAttachmentUpload(sessionId, effectiveAttachments);
+            const { uploaded, failed, reason } = await this.uploadAttachmentsForSession(sessionId, effectiveAttachments, progress)
+                .finally(progress.finish);
 
             if (failed > 0) {
                 Modal.alert(

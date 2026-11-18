@@ -1885,12 +1885,11 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                             ]}
                         >
                     {/* Attachment preview strip */}
-                    {props.selectedImages && props.selectedImages.length > 0 && (
-                        <AgentInputAttachmentStrip
-                            images={props.selectedImages}
-                            onRemove={props.onRemoveImage ?? (() => {})}
-                        />
-                    )}
+                    <AgentInputAttachmentStrip
+                        sessionId={props.sessionId}
+                        images={props.selectedImages}
+                        onRemove={props.onRemoveImage}
+                    />
                     {/* Input field */}
                     <View style={[
                         styles.inputContainer,
