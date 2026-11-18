@@ -40,7 +40,7 @@ export const TurnTimeline = React.memo(function TurnTimeline({ group, metadata, 
     let process: React.ReactNode[] = [header];
     let sectionKey = 'header';
     if (expanded && selection.hiddenCount > 0) process.push(
-        <Pressable key="earlier" accessibilityRole="button" onPress={() => setShowEarlier(true)} style={[{ borderRadius: 6 }, styles.earlier]}>
+        <Pressable key="earlier" accessibilityRole="button" onPress={() => setShowEarlier(true)} style={styles.earlier}>
             <Text style={styles.earlierText}>{t('toolGroup.timeline.earlier', { count: selection.hiddenCount })}</Text>
         </Pressable>
     );
@@ -135,6 +135,6 @@ const styles = StyleSheet.create(theme => ({
         backgroundColor: theme.colors.processSurface,
     },
     parallelTitle: { paddingHorizontal: 8, fontSize: 12, lineHeight: 20, color: theme.colors.textSecondary, ...Typography.default() },
-    earlier: { minHeight: 28, justifyContent: 'center', marginBottom: 4 },
+    earlier: { minHeight: 28, justifyContent: 'center', marginBottom: 4, borderRadius: 6, paddingHorizontal: 8 },
     earlierText: { fontSize: 12, lineHeight: 20, color: theme.colors.textSecondary, ...Typography.default() },
 }));

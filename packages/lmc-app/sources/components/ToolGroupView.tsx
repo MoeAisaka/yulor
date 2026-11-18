@@ -435,7 +435,7 @@ const styles = StyleSheet.create((theme) => ({
         paddingVertical: 4,
         borderRadius: 4,
     },
-    timelineHeader: { marginHorizontal: 0, minHeight: 28, gap: 8, marginBottom: 4 },
+    timelineHeader: { marginHorizontal: 0, minHeight: 28, gap: 8, marginBottom: 4, borderRadius: 6, paddingHorizontal: 8 },
     timelineSummary: { flex: 1, fontSize: 13, lineHeight: 20, ...Typography.default() },
     headerDetail: { fontSize: 13, lineHeight: 20, color: theme.colors.textSecondary, ...Typography.default() },
     headerPressed: {
